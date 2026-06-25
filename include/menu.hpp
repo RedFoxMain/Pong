@@ -3,6 +3,7 @@
 
 #include <SFML/Graphics.hpp>
 #include "constants.hpp"
+#include "font_config.h"
 
 class Menu: public sf::Drawable {
 private:
@@ -13,7 +14,7 @@ private:
 
 public:
 	Menu(): m_option(1) {
-		m_font = new sf::Font(DEFAULT_FONT);
+		m_font = new sf::Font(FONT_PATH);
 
 		m_connect_text = new sf::Text(*m_font, "Connect", 28);
 		m_connect_text->setOrigin(m_connect_text->getLocalBounds().size / 2.f);

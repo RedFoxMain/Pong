@@ -10,6 +10,7 @@
 #include "paddle.hpp"
 #include "ball.hpp"
 #include "menu.hpp"
+#include "font_config.h"
 
 class Game {
 private:
@@ -40,7 +41,7 @@ public:
 		: m_is_host(false), m_address(sf::IpAddress::LocalHost), m_is_playing(true),
 		m_port(8000), m_host_score(0), m_client_score(0) {
 		m_window = sf::RenderWindow(sf::VideoMode(WINDOW_SIZE), "Pong", sf::Style::Titlebar | sf::Style::Close);
-		m_font.openFromFile(DEFAULT_FONT);
+		m_font.openFromFile(std::string(FONT_PATH));
 		m_score_text = new sf::Text(m_font, std::to_string(m_host_score) + " : " + std::to_string(m_client_score), 40);
 		m_score_text->setFillColor(sf::Color::White);
 		m_score_text->setOrigin(m_score_text->getLocalBounds().size / 2.f);

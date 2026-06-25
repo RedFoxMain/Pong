@@ -1,0 +1,4 @@
+#ifndef FONT_CONFIG_HPP
+#define FONT_CONFIG_HPP
+#define FONT_PATH "@FONT_DIR@"
+#endif // !FONT_CONFIG_HPP
