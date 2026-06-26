@@ -30,7 +30,6 @@ file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/resources/ArialRegular.ttf" DESTINATION "
 set(SFML_STATIC_LIBRARIES TRUE)
 find_package(SFML 3.0.0 COMPONENTS Graphics Network System REQUIRED)
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES} ${HEADER_FILES})
-#target_compile_definitions(${PROJECT_NAME} PRIVATE DEFAULT_FONT="${PROJECT_BINARY_DIR}/resources/ArialRegular.ttf")
 target_include_directories(${PROJECT_NAME} PRIVATE ${SFML_INCLUDE} ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(${PROJECT_NAME} PRIVATE SFML::Graphics SFML::Network SFML::System)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
