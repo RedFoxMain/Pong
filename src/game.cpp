@@ -13,6 +13,16 @@ void Game::launch() {
 	}
 }
 
+void Game::reset() {
+	ball.reset();
+	m_host_score = 0;
+	m_client_score = 0;
+	m_is_playing = true;
+	m_socket.setBlocking(true);
+	m_server_ip_address.clear();
+	m_server_ip_address_text->setString("");
+}
+
 void Game::processEvents() {
 	while (auto event = m_window.pollEvent()) {
 		if (event->is<sf::Event::Closed>())
@@ -22,34 +32,54 @@ void Game::processEvents() {
 				menu.processEvents();
 				if (keyboard_event->scancode == sf::Keyboard::Scancode::Enter) {
 					m_is_host = (menu.getMenuOption() == 1) ? false : true;
-					m_is_playing = true;
-					m_socket.setBlocking(true);
-					m_host_score = 0;
-					m_client_score = 0;
-					StateManager::getInstance()->setState(StateManager::GameState::Connecting);
 					if (m_is_host) {
-						m_status_text->setString("Waiting for the client...");
+						m_status_text->setString("Waiting for the client...(Esc)");
 						m_status_text->setOrigin(m_status_text->getLocalBounds().size / 2.f);
 						m_status_text->setPosition({ WINDOW_SIZE.x / 2.f, 25 });
 						player1.setPosition({ PADDLE_SIZE.x, WINDOW_SIZE.y / 2.f });
 						player2.setPosition({ WINDOW_SIZE.x - PADDLE_SIZE.x, WINDOW_SIZE.y / 2.f });
 						player1.setColor(sf::Color::Red);
 						player2.setColor(sf::Color::Blue);
+						StateManager::getInstance()->setState(StateManager::GameState::Connecting);
 						m_network_thread = std::thread(&Game::serverListen, this);
 					} else {
-						m_status_text->setString("Waiting for the server...");
+						m_status_text->setString("Enter serever IP and press Space...(Esc)");
 						m_status_text->setOrigin(m_status_text->getLocalBounds().size / 2.f);
 						m_status_text->setPosition({ WINDOW_SIZE.x / 2.f, 25 });
 						player1.setPosition({ WINDOW_SIZE.x - PADDLE_SIZE.x, WINDOW_SIZE.y / 2.f });
 						player2.setPosition({ PADDLE_SIZE.x, WINDOW_SIZE.y / 2.f });
 						player1.setColor(sf::Color::Blue);
 						player2.setColor(sf::Color::Red);
-						m_network_thread = std::thread(&Game::clientListen, this);
+						StateManager::getInstance()->setState(StateManager::GameState::Input);
 					}
 				}
 			}
 			if (keyboard_event->scancode == sf::Keyboard::Scancode::Escape) {
 				StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
+			}
+		}
+		if (auto input_event = event->getIf<sf::Event::TextEntered>()) {
+			if (StateManager::getInstance()->getState() == StateManager::GameState::Input) {
+				char32_t symbol = input_event->unicode;
+				if (symbol == 32) {
+					if (std::optional<sf::IpAddress> temp_address = sf::IpAddress::resolve(m_server_ip_address)) {
+						if (temp_address.has_value()) m_address = temp_address.value();
+						else StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
+					}
+					StateManager::getInstance()->setState(StateManager::GameState::Connecting);
+					m_status_text->setString("Waiting for the server...(Esc)");
+					m_status_text->setOrigin(m_status_text->getLocalBounds().size / 2.f);
+					m_status_text->setPosition({ WINDOW_SIZE.x / 2.f, 25 });
+					m_server_ip_address.clear();
+					m_network_thread = std::thread(&Game::clientListen, this);
+				}
+				if ((symbol >= 48 && symbol <= 57) || symbol == 46 || symbol == 8) {
+					if (symbol == 8) m_server_ip_address.pop_back();
+					else m_server_ip_address.push_back(symbol);
+					m_server_ip_address_text->setString(m_server_ip_address);
+					m_server_ip_address_text->setOrigin(m_server_ip_address_text->getLocalBounds().size / 2.f);
+					m_server_ip_address_text->setPosition(sf::Vector2f(WINDOW_SIZE) / 2.f);
+				}
 			}
 		}
 	}
@@ -61,6 +91,8 @@ void Game::render() {
 		case StateManager::GameState::Menu: 
 			m_window.draw(menu); 
 			break;
+		case StateManager::GameState::Input: 
+			m_window.draw(*m_server_ip_address_text);
 		case StateManager::GameState::Connecting: 
 			m_window.draw(*m_status_text);
 			break;
@@ -76,11 +108,11 @@ void Game::render() {
 
 void Game::update(float dt) {
 	switch (StateManager::getInstance()->getState()) {
-		case StateManager::GameState::Pause: break;
 		case StateManager::GameState::Disconnect: 
 			m_is_playing = false;
 			if (m_network_thread.joinable())
 				m_network_thread.join();
+			reset();
 			m_socket.disconnect();
 			StateManager::getInstance()->setState(StateManager::GameState::Menu);
 			break;
@@ -121,7 +153,7 @@ void Game::update(float dt) {
 
 void Game::serverListen() {
 	sf::TcpListener listener;
-	if (listener.listen(m_port, m_address) != sf::Socket::Status::Done) {
+	if (listener.listen(m_port, sf::IpAddress::Any) != sf::Socket::Status::Done) {
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
 		return;
 	}
@@ -145,7 +177,7 @@ void Game::serverListen() {
 }
 
 void Game::clientListen() {
-	if(m_socket.connect(m_address, m_port) != sf::Socket::Status::Done) {
+	if(m_socket.connect(m_address, m_port, sf::seconds(5)) != sf::Socket::Status::Done) {
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
 		return;
 	}
@@ -162,13 +194,11 @@ void Game::clientListen() {
 				player1.setPosition({ player1.getPosition().x, data.paddle_position_y });
 			if (m_host_score != data.host_score) {
 				m_host_score = data.host_score;
-				m_score_text->setString(std::to_string(m_host_score) + " : " + std::to_string(m_client_score));
-
+				m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
 			}
 			if (m_client_score != data.client_score) {
 				m_client_score = data.client_score;
-				m_score_text->setString(std::to_string(m_host_score) + " : " + std::to_string(m_client_score));
-
+				m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
 			}
 		}
 	}

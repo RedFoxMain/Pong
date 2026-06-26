@@ -33,13 +33,15 @@ private:
 	std::atomic<bool> m_is_playing;
 
 	sf::Font m_font;
+	std::string m_server_ip_address;
+	sf::Text* m_server_ip_address_text;
 	sf::Text* m_score_text;
 	sf::Text* m_status_text;
 
 public:
 	Game()
-		: m_is_host(false), m_address(sf::IpAddress::LocalHost), m_is_playing(true),
-		m_port(8000), m_host_score(0), m_client_score(0) {
+		: m_is_host(false), m_is_playing(true),
+		m_port(8000), m_address(sf::IpAddress::LocalHost), m_host_score(0), m_client_score(0) {
 		m_window = sf::RenderWindow(sf::VideoMode(WINDOW_SIZE), "Pong", sf::Style::Titlebar | sf::Style::Close);
 		m_font.openFromFile(std::string(FONT_PATH));
 		m_score_text = new sf::Text(m_font, std::to_string(m_host_score) + " : " + std::to_string(m_client_score), 40);
@@ -49,6 +51,9 @@ public:
 
 		m_status_text = new sf::Text(m_font, "", 40);
 		m_status_text->setFillColor(sf::Color::White);
+
+		m_server_ip_address_text = new sf::Text(m_font, "", 40);
+		m_server_ip_address_text->setFillColor(sf::Color::White);
 		m_window.setFramerateLimit(60);
 	}
 	void launch();
@@ -57,6 +62,7 @@ private:
 	void processEvents();
 	void render();
 	void update(float dt);
+	void reset();
 
 	void serverListen();
 	void clientListen();
