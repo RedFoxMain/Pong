@@ -8,7 +8,7 @@
 class StateManager {
 public:
 	enum GameState {
-		Menu, Playing, Pause, Close, Disconnect, Connecting
+		Menu, Playing, Close, Disconnect, Connecting, Input
 	};
 
 private:
