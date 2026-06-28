@@ -13,6 +13,27 @@ void Game::launch() {
 	}
 }
 
+void Game::render() {
+	m_window.clear();
+	switch (StateManager::getInstance()->getState()) {
+		case StateManager::GameState::Menu: 
+			m_window.draw(menu); 
+			break;
+		case StateManager::GameState::Input: 
+			m_window.draw(*m_server_ip_address_text);
+		case StateManager::GameState::Connecting: 
+			m_window.draw(*m_status_text);
+			break;
+		case StateManager::GameState::Playing:
+			m_window.draw(player1);
+			m_window.draw(player2);
+			m_window.draw(ball);
+			m_window.draw(*m_score_text);
+			break;
+	}
+	m_window.display();
+}
+
 void Game::reset() {
 	ball.reset();
 	m_host_score = 0;
@@ -85,39 +106,21 @@ void Game::processEvents() {
 	}
 }
 
-void Game::render() {
-	m_window.clear();
-	switch (StateManager::getInstance()->getState()) {
-		case StateManager::GameState::Menu: 
-			m_window.draw(menu); 
-			break;
-		case StateManager::GameState::Input: 
-			m_window.draw(*m_server_ip_address_text);
-		case StateManager::GameState::Connecting: 
-			m_window.draw(*m_status_text);
-			break;
-		case StateManager::GameState::Playing:
-			m_window.draw(player1);
-			m_window.draw(player2);
-			m_window.draw(ball);
-			m_window.draw(*m_score_text);
-			break;
-	}
-	m_window.display();
-}
-
 void Game::update(float dt) {
 	switch (StateManager::getInstance()->getState()) {
 		case StateManager::GameState::Disconnect: 
 			m_is_playing = false;
+			m_listener.close();
+			m_socket.disconnect();
 			if (m_network_thread.joinable())
 				m_network_thread.join();
 			reset();
-			m_socket.disconnect();
 			StateManager::getInstance()->setState(StateManager::GameState::Menu);
 			break;
 		case StateManager::GameState::Close: 
 			m_is_playing = false;
+			m_listener.close();
+			m_socket.disconnect();
 			if(m_network_thread.joinable())
 				m_network_thread.join();
 			m_window.close(); 
@@ -136,69 +139,95 @@ void Game::update(float dt) {
 					m_score_text->setString(std::to_string(m_host_score) + " : " + std::to_string(m_client_score));
 					ball.reset();
 				}
-				sendDataToClient();
+				if (m_incrase_clock.getElapsedTime().asMilliseconds() >= 17) {
+					ball.increaseSpeed();
+					m_incrase_clock.restart();
+				}
+				if (m_packet_clock.getElapsedTime() >= DATA_SEND_INTERVAL) {
+					sendDataToClient();
+					m_packet_clock.restart();
+				}
+				ball.update(player1, player2, dt);
 			} else {
 				if (sf::Keyboard::isKeyPressed(sf::Keyboard::Scancode::W)) player2.moveUp(dt);
 				else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Scancode::S)) player2.moveDown(dt);
-				if (ball.getPosition().x <= BALL_SIZE) ball.reset();
-				if (ball.getPosition().x >= WINDOW_SIZE.x - BALL_SIZE) ball.reset();
-				sendDataToServer();
+				if (m_packet_clock.getElapsedTime() >= DATA_SEND_INTERVAL) {
+					sendDataToServer();
+					m_packet_clock.restart();
+				}
 			}
-			if (m_incrase_clock.restart().asMilliseconds() >= 17) 
-				ball.increaseSpeed();
-			ball.update(player1, player2, dt);
 			break;
 	}
 }
 
 void Game::serverListen() {
-	sf::TcpListener listener;
-	if (listener.listen(m_port, sf::IpAddress::Any) != sf::Socket::Status::Done) {
+	if (m_listener.listen(m_tcp_port, sf::IpAddress::Any) != sf::Socket::Status::Done) {
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
 		return;
 	}
-	if (listener.accept(m_socket) != sf::Socket::Status::Done) {
+	if (m_listener.accept(m_socket) != sf::Socket::Status::Done) {
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
 		return;
 	}
 	StateManager::getInstance()->setState(StateManager::GameState::Playing);
-	m_socket.setBlocking(false);
+	sf::SocketSelector selector;
+	selector.add(m_socket);
 	while (m_is_playing) {
-		sf::Packet packet;
-		while (m_socket.receive(packet) == sf::Socket::Status::Done) {
-			std::lock_guard<std::mutex> guard(m_mutex);
-			GamePacket data;
-			packet >> data;
-			if (player2.getPosition().y != data.paddle_position_y)
-				player2.setPosition({ player2.getPosition().x, data.paddle_position_y });
+		if (selector.wait(sf::milliseconds(10))) {
+			if (selector.isReady(m_socket)) {
+				GamePacket data;
+				sf::Packet packet;
+				size_t received;
+				sf::Socket::Status status = m_socket.receive(&data, sizeof(data), received);
+				if (status == sf::Socket::Status::Done) {
+					std::lock_guard<std::mutex> guard(m_mutex);
+					if (player2.getPosition().y != data.paddle_position_y)
+						player2.setPosition({ player2.getPosition().x, data.paddle_position_y });
+				}
+				if (status == sf::Socket::Status::Disconnected || status == sf::Socket::Status::Error) {
+					StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
+					break;
+				}
+			}
 		}
 	}
-	listener.close();
+	m_socket.disconnect();
+	m_listener.close();
 }
 
 void Game::clientListen() {
-	if(m_socket.connect(m_address, m_port, sf::seconds(5)) != sf::Socket::Status::Done) {
+	if(m_socket.connect(m_address, m_tcp_port, sf::seconds(5)) != sf::Socket::Status::Done) {
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
 		return;
 	}
-	StateManager::getInstance()->setState(StateManager::GameState::Playing);
 	m_socket.setBlocking(false);
+	StateManager::getInstance()->setState(StateManager::GameState::Playing);
+	sf::SocketSelector selector;
+	selector.add(m_socket);
 	while (m_is_playing) {
-		sf::Packet packet;
-		while (m_socket.receive(packet) == sf::Socket::Status::Done) {
-			std::lock_guard<std::mutex> guard(m_mutex);
-			GamePacket data;
-			packet >> data;
-			ball.setPosition(data.ball_position);
-			if(player1.getPosition().y != data.paddle_position_y)
-				player1.setPosition({ player1.getPosition().x, data.paddle_position_y });
-			if (m_host_score != data.host_score) {
-				m_host_score = data.host_score;
-				m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
-			}
-			if (m_client_score != data.client_score) {
-				m_client_score = data.client_score;
-				m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
+		if (selector.wait(sf::milliseconds(10))) {
+			if (selector.isReady(m_socket)) {
+				GamePacket data;
+				size_t received;
+				sf::Socket::Status status = m_socket.receive(&data, sizeof(data), received);
+				if (status == sf::Socket::Status::Done && received == sizeof(data)) {
+					std::lock_guard<std::mutex> guard(m_mutex);
+					ball.setPosition(data.ball_position);
+					if (player1.getPosition().y != data.paddle_position_y)
+						player1.setPosition({ player1.getPosition().x, data.paddle_position_y });
+					if (m_host_score != data.host_score) {
+						m_host_score = data.host_score;
+						m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
+					}
+					if (m_client_score != data.client_score) {
+						m_client_score = data.client_score;
+						m_score_text->setString(std::to_string(m_client_score) + " : " + std::to_string(m_host_score));
+					}
+				}
+				if (status == sf::Socket::Status::Disconnected || status == sf::Socket::Status::Error) {
+					StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
+					break;
+				}
 			}
 		}
 	}
@@ -206,17 +235,14 @@ void Game::clientListen() {
 }
 
 void Game::sendDataToServer() {
-	sf::Packet packet;
-	packet << GamePacket(player2.getPosition().y);
-	if (m_socket.send(packet) == sf::Socket::Status::Disconnected)
-		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
-	packet.clear();
+	GamePacket data;
+	data.paddle_position_y = player2.getPosition().y;
+	m_socket.send(&data, sizeof(data));
 }
 
 void Game::sendDataToClient() {
-	sf::Packet packet;
-	packet << GamePacket(player1.getPosition().y, ball.getPosition(), m_host_score, m_client_score);
-	if (m_socket.send(packet) == sf::Socket::Status::Disconnected)
+	GamePacket data(player1.getPosition().y, ball.getPosition(), m_host_score, m_client_score);
+	sf::Socket::Status status = m_socket.send(&data, sizeof(data));
+	if (status == sf::Socket::Status::Disconnected || status == sf::Socket::Status::Error)
 		StateManager::getInstance()->setState(StateManager::GameState::Disconnect);
-	packet.clear();
 }

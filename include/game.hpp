@@ -12,6 +12,9 @@
 #include "menu.hpp"
 #include "font_config.h"
 
+
+#define DATA_SEND_INTERVAL sf::milliseconds(33)
+
 class Game {
 private:
 	sf::RenderWindow m_window;
@@ -19,14 +22,16 @@ private:
 	Ball ball;
 	Menu menu;
 	sf::Clock m_game_clock;
+	sf::Clock m_packet_clock;
 	sf::Clock m_incrase_clock;
 
 	std::thread m_network_thread;
 	std::mutex m_mutex;
 
+	sf::TcpListener m_listener;
 	sf::TcpSocket m_socket;
-	unsigned short m_port;
 	sf::IpAddress m_address;
+	unsigned short m_tcp_port;
 	bool m_is_host;
 	int m_host_score;
 	int m_client_score;
@@ -41,7 +46,7 @@ private:
 public:
 	Game()
 		: m_is_host(false), m_is_playing(true),
-		m_port(8000), m_address(sf::IpAddress::LocalHost), m_host_score(0), m_client_score(0) {
+		m_tcp_port(8000), m_address(sf::IpAddress::LocalHost), m_host_score(0), m_client_score(0) {
 		m_window = sf::RenderWindow(sf::VideoMode(WINDOW_SIZE), "Pong", sf::Style::Titlebar | sf::Style::Close);
 		m_font.openFromFile(std::string(FONT_PATH));
 		m_score_text = new sf::Text(m_font, std::to_string(m_host_score) + " : " + std::to_string(m_client_score), 40);
